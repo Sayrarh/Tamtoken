@@ -1,8 +1,19 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+require("dotenv").config({ path: ".env" });
 
-const config: HardhatUserConfig = {
-  solidity: "0.8.18",
+const ALCHEMY_GOERLI_API_KEY_URL = process.env.GOERLI_API;
+
+const ACCOUNT_PRIVATE_KEY = process.env.SECRET;
+
+module.exports = {
+  solidity: "0.8.4",
+  networks: {
+    goerli: {
+      url: ALCHEMY_GOERLI_API_KEY_URL,
+      accounts: [ACCOUNT_PRIVATE_KEY],
+    }
+  },
+  blockGasLimit: 200000000000,
+  gasPrice: 10000000000,
 };
-
-export default config;

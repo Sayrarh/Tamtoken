@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.4;
 interface IERC20{
     
     function name() external view returns (string memory);
