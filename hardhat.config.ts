@@ -8,7 +8,14 @@ const ACCOUNT_PRIVATE_KEY = process.env.SECRET;
 
 module.exports = {
   solidity: "0.8.4",
+  settings: {
+    optimizer: {
+      enabled: true,
+      runs: 200,
+    },
+  },
   networks: {
+    hardhat: {},
     goerli: {
       url: ALCHEMY_GOERLI_API_KEY_URL,
       accounts: [ACCOUNT_PRIVATE_KEY],

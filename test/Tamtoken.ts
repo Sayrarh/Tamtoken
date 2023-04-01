@@ -2,123 +2,181 @@ import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import { utils } from "ethers";
 
-describe("Lock", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
-  async function deployOneYearLockFixture() {
-    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-    const ONE_GWEI = 1_000_000_000;
-
-    const lockedAmount = ONE_GWEI;
-    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
-
+describe("Tamtoken", function () {
+  
+  async function deployOneTokenContract() {
+    
     // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount] = await ethers.getSigners();
+    const [owner, otherAccount, user, otherUser] = await ethers.getSigners();
 
-    const Lock = await ethers.getContractFactory("Lock");
-    const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
+    const Tamtoken = await ethers.getContractFactory("Tamtoken");
+    const tam = await Tamtoken.deploy();
 
-    return { lock, unlockTime, lockedAmount, owner, otherAccount };
+    await tam.deployed();
+    
+    return { tam, owner, otherAccount, user , otherUser};
   }
 
-  describe("Deployment", function () {
-    it("Should set the right unlockTime", async function () {
-      const { lock, unlockTime } = await loadFixture(deployOneYearLockFixture);
+  describe("Deployment", function (){
+    it("Should set the correct initial total supply", async function(){
+      const {tam} = await loadFixture(deployOneTokenContract);
 
-      expect(await lock.unlockTime()).to.equal(unlockTime);
+      const totalSupply = await tam.totalSupply();
+
+     await expect(totalSupply).to.equal(ethers.utils.parseEther("900000000000000000"));
+    })
+
+    it("Should set the correct token name and symbol", async function(){
+      const{tam} = await loadFixture(deployOneTokenContract);
+
+      const tokenname = await tam.name();
+      const tokensymbol = await tam.symbol();
+
+      expect(tokenname, tokensymbol).to.equal("Tamtoken", "TAM");
+    })
+
+    it("Should have minted token successfully to the owner", async function(){
+      const{tam, owner} = await loadFixture(deployOneTokenContract);
+
+      await expect(await tam.balanceOf(owner.address)).to.equal(await tam.totalSupply());
+    })
+  })
+
+  describe("Token Transfer", function (){
+    it('Should transfer tokens correctly', async () => {
+      const {tam, owner, user} = await loadFixture(deployOneTokenContract);
+       
+      await tam.connect(owner).transfer(user.address, ethers.utils.parseEther("10"));
+      
+      const userBal = await tam.balanceOf(user.address);
+
+      expect(userBal).to.equal(ethers.utils.parseEther("10"));
+      
     });
 
-    it("Should set the right owner", async function () {
-      const { lock, owner } = await loadFixture(deployOneYearLockFixture);
+    it("Should revert if account has Insufficient token balance", async function(){
+      const {tam, otherAccount, otherUser} = await loadFixture(deployOneTokenContract);
+      
+      await expect (tam.connect(otherAccount).transfer(otherUser.address, ethers.utils.parseEther("5"))).to.be.revertedWithCustomError(tam, "InsufficientToken");
+    })
 
-      expect(await lock.owner()).to.equal(owner.address);
+    it('Should prevent transfers to the zero address', async () => {
+      const {tam, owner} = await loadFixture(deployOneTokenContract);
+      
+      await expect(tam.connect(owner).transfer('0x0000000000000000000000000000000000000000', 100)).to.be.revertedWithCustomError(tam, "AddressZero");
+    });
+  })
+
+
+  describe("Token Approvals", function(){
+    it("Should revert if approval is not granted to an account", async function(){
+      const {tam, otherAccount, owner} = await loadFixture(deployOneTokenContract);
+
+      await expect(tam.connect(otherAccount).transferFrom(owner.address, otherAccount.address, ethers.utils.parseEther("1") )).to.be.revertedWithCustomError(tam, "InsufficientAllowance");
+    })
+
+    it("Should revert if token holder's account balance is low", async function(){
+      const {tam, otherAccount, owner, user} = await loadFixture(deployOneTokenContract);
+
+      const Approval = await tam.connect(owner).approve(otherAccount.address, ethers.utils.parseEther("50"));
+      await Approval.wait();
+
+      const TransferOut = await tam.connect(otherAccount).transferFrom(owner.address, otherAccount.address, ethers.utils.parseEther("10"));
+      await TransferOut.wait();
+  
+      const approveAnotheracc = await tam.connect(otherAccount).transfer(user.address, ethers.utils.parseEther("5"));
+      await approveAnotheracc.wait();
+
+      //owner wants to decrease otherAccount's token allowance since he hasn't transfered all the token out
+      
+      await expect(tam.connect(owner).decreaseAllowance(otherAccount.address, ethers.utils.parseEther("45"))).to.be.revertedWithCustomError(tam, "InsufficientToken");
+
+    })
+
+    it("Should revert if account has insufficient allowance", async function(){
+      const {tam, otherAccount, owner} = await loadFixture(deployOneTokenContract);
+      
+      const Approval = await tam.connect(owner).approve(otherAccount.address, ethers.utils.parseEther("5"));
+      await Approval.wait();
+      
+      console.log("other", Approval);
+
+      await expect(tam.connect(otherAccount).transferFrom(owner.address, otherAccount.address, ethers.utils.parseEther("7"))).to.be.revertedWithCustomError(tam, "InsufficientAllowance");
+    })
+
+  
+  })
+
+
+  describe ("Burning Token", function(){
+    it("Should revert if caller does not have access to burn", async function(){
+       const {tam, otherAccount, owner} = await loadFixture(deployOneTokenContract);
+
+       const tx = await tam.connect(owner).transfer(otherAccount.address, ethers.utils.parseEther("200"));
+       await tx.wait();
+
+       const burnAmount = ethers.utils.parseEther("100");
+
+       await expect(tam.connect(otherAccount).burn(otherAccount.address, burnAmount)).to.be.revertedWithCustomError(tam, "OnlyMinter");
+
+    })
+
+    it("Should burn token successfully", async function(){
+      const {tam, otherAccount, owner} = await loadFixture(deployOneTokenContract);
+      
+      const burnAmount = ethers.utils.parseEther("100000000000000000")
+
+      const tx = await tam.connect(owner).burn(owner.address, burnAmount);
+      await tx.wait();
+
+      const bal = await tam.balanceOf(owner.address);
+      await expect (bal).to.equal(ethers.utils.parseEther("800000000000000000"))
+    })
+
+  })
+
+
+  describe ("Minting Token", function(){
+    it("Should revert if caller doesnt have a Minter Role", async function(){
+      const {tam, otherAccount, owner} = await loadFixture(deployOneTokenContract);
+  
+      const tx = await tam.connect(owner).transfer(otherAccount.address, ethers.utils.parseEther("200"));
+       await tx.wait();
+
+       const mintAmount = ethers.utils.parseEther("2000000");
+
+       await expect(tam.connect(otherAccount).mint(otherAccount.address, mintAmount)).to.be.revertedWithCustomError(tam, "OnlyMinter");
+      
     });
 
-    it("Should receive and store the funds to lock", async function () {
-      const { lock, lockedAmount } = await loadFixture(
-        deployOneYearLockFixture
-      );
+    it("Should mint token successfully", async function(){
+      const {tam, owner} = await loadFixture(deployOneTokenContract);
+      
+      const mintAmount = ethers.utils.parseEther("100000000000000000")
 
-      expect(await ethers.provider.getBalance(lock.address)).to.equal(
-        lockedAmount
-      );
-    });
+      const tx = await tam.connect(owner).mint(owner.address, mintAmount);
+      await tx.wait();
 
-    it("Should fail if the unlockTime is not in the future", async function () {
-      // We don't use the fixture here because we want a different deployment
-      const latestTime = await time.latest();
-      const Lock = await ethers.getContractFactory("Lock");
-      await expect(Lock.deploy(latestTime, { value: 1 })).to.be.revertedWith(
-        "Unlock time should be in the future"
-      );
-    });
-  });
+      const total = await tam.totalSupply();
+      await expect (total).to.equal(ethers.utils.parseEther("1000000000000000000"))
+    })
 
-  describe("Withdrawals", function () {
-    describe("Validations", function () {
-      it("Should revert with the right error if called too soon", async function () {
-        const { lock } = await loadFixture(deployOneYearLockFixture);
+    it("Should revert on minting if minting is finished", async function(){
+      const {tam, owner} = await loadFixture(deployOneTokenContract);
+      
+      const mintAmount = ethers.utils.parseEther("100000000000000000");
 
-        await expect(lock.withdraw()).to.be.revertedWith(
-          "You can't withdraw yet"
-        );
-      });
+      const tx = await tam.connect(owner).finishMinting();
+      await tx.wait();
 
-      it("Should revert with the right error if called from another account", async function () {
-        const { lock, unlockTime, otherAccount } = await loadFixture(
-          deployOneYearLockFixture
-        );
+      await expect(tam.connect(owner).mint(owner.address, mintAmount)).to.be.revertedWithCustomError(tam, "MintingHasFinished");
 
-        // We can increase the time in Hardhat Network
-        await time.increaseTo(unlockTime);
+    })
+    
 
-        // We use lock.connect() to send a transaction from another account
-        await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
-          "You aren't the owner"
-        );
-      });
+  })
 
-      it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
-        const { lock, unlockTime } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        // Transactions are sent using the first signer by default
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).not.to.be.reverted;
-      });
-    });
-
-    describe("Events", function () {
-      it("Should emit an event on withdrawals", async function () {
-        const { lock, unlockTime, lockedAmount } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw())
-          .to.emit(lock, "Withdrawal")
-          .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-      });
-    });
-
-    describe("Transfers", function () {
-      it("Should transfer the funds to the owner", async function () {
-        const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).to.changeEtherBalances(
-          [owner, lock],
-          [lockedAmount, -lockedAmount]
-        );
-      });
-    });
-  });
+  
 });

@@ -9,21 +9,41 @@ contract Tamtoken is IERC20, AccessControl {
 
     event MintingFinished();
 
-    string public override constant name = "Tamtoken"; //token name
-    string public override constant symbol = "TAM"; // token symbol
-    uint8 public override constant decimals = 18; //token decimal
+    string private constant _name = "Tamtoken"; //token name
+    string private constant _symbol = "TAM"; // token symbol
+
     bool private _mintingFinished = false;
-    uint256 private _totalSupply;
 
-    mapping(address => uint256) _balances;
+    uint256 private _totalSupply; 
 
-    //owner's address => spender's address =>token  amount allowed
-    mapping(address => mapping(address => uint256)) _allowed;
+    mapping(address => uint256) private _balances;
+
+    //token owner's address => spender's address =>token  amount allowed
+    mapping(address => mapping(address => uint256)) private _allowed;
 
     ///////ERORS///////
     error InsufficientToken();
     error InsufficientAllowance();
     error MintingHasFinished();
+
+    constructor(){
+      _mint(msg.sender, 900000000000000000 * (10 ** decimals()));
+    }
+
+    //returns token name
+     function name() public pure returns (string memory) {
+        return _name;
+    }
+
+    // Returns the symbol of the token
+    function symbol() public pure returns (string memory) {
+        return _symbol;
+    }
+
+    //Returns token decimal
+    function decimals() public pure returns (uint8) {
+        return 18;
+    }
 
     //Getter for token total supply in existence
     function totalSupply() public override view returns (uint256) {
@@ -59,7 +79,7 @@ contract Tamtoken is IERC20, AccessControl {
     //approve enables a token owner give allowance to a third party to spend their token on their behalf
     function approve(address spender, uint256 amount) external override returns (bool) {
         if (spender == address(0)) revert AddressZero();
-        if (amount > _allowed[msg.sender][spender]) revert InsufficientToken();
+        if (amount > _balances[msg.sender]) revert InsufficientToken();
 
         _allowed[msg.sender][spender] = amount;
         emit Approved(msg.sender, spender, amount);
@@ -154,6 +174,14 @@ contract Tamtoken is IERC20, AccessControl {
         _mint(to, amount);
         return true;
     }
+
+     //function to burn tokens
+    function burn(address from, uint256 amount) public returns (bool) {
+        if (!hasMinterRole(msg.sender)) revert OnlyMinter();
+        _burn(from, amount);
+        return true;
+    }
+
 
     /**
      * @return true if the minting is finished.
